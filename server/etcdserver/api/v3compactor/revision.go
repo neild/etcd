@@ -17,10 +17,10 @@ package v3compactor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	"go.uber.org/zap"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -32,7 +32,6 @@ import (
 type Revision struct {
 	lg *zap.Logger
 
-	clock     clockwork.Clock
 	retention int64
 
 	rg RevGetter
@@ -47,10 +46,9 @@ type Revision struct {
 
 // newRevision creates a new instance of Revisonal compactor that purges
 // the log older than retention revisions from the current revision.
-func newRevision(lg *zap.Logger, clock clockwork.Clock, retention int64, rg RevGetter, c Compactable) *Revision {
+func newRevision(lg *zap.Logger, retention int64, rg RevGetter, c Compactable) *Revision {
 	rc := &Revision{
 		lg:        lg,
-		clock:     clock,
 		retention: retention,
 		rg:        rg,
 		c:         c,
@@ -69,7 +67,8 @@ func (rc *Revision) Run() {
 			select {
 			case <-rc.ctx.Done():
 				return
-			case <-rc.clock.After(revInterval):
+			case <-time.After(revInterval):
+				fmt.Println(time.Now())
 				rc.mu.Lock()
 				p := rc.paused
 				rc.mu.Unlock()

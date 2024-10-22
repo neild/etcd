@@ -20,7 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	"go.uber.org/zap"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -31,7 +30,6 @@ import (
 // the configured retention time.
 type Periodic struct {
 	lg     *zap.Logger
-	clock  clockwork.Clock
 	period time.Duration
 
 	rg RevGetter
@@ -48,10 +46,9 @@ type Periodic struct {
 
 // newPeriodic creates a new instance of Periodic compactor that purges
 // the log older than h Duration.
-func newPeriodic(lg *zap.Logger, clock clockwork.Clock, h time.Duration, rg RevGetter, c Compactable) *Periodic {
+func newPeriodic(lg *zap.Logger, h time.Duration, rg RevGetter, c Compactable) *Periodic {
 	pc := &Periodic{
 		lg:     lg,
-		clock:  clock,
 		period: h,
 		rg:     rg,
 		c:      c,
@@ -104,7 +101,7 @@ func (pc *Periodic) Run() {
 
 	go func() {
 		lastRevision := int64(0)
-		lastSuccess := pc.clock.Now()
+		lastSuccess := time.Now()
 		baseInterval := pc.period
 		for {
 			pc.revs = append(pc.revs, pc.rg.Rev())
@@ -115,7 +112,7 @@ func (pc *Periodic) Run() {
 			select {
 			case <-pc.ctx.Done():
 				return
-			case <-pc.clock.After(retryInterval):
+			case <-time.After(retryInterval):
 				pc.mu.RLock()
 				p := pc.paused
 				pc.mu.RUnlock()
@@ -124,7 +121,7 @@ func (pc *Periodic) Run() {
 				}
 			}
 			rev := pc.revs[0]
-			if pc.clock.Now().Sub(lastSuccess) < baseInterval || rev == lastRevision {
+			if time.Now().Sub(lastSuccess) < baseInterval || rev == lastRevision {
 				continue
 			}
 
@@ -138,17 +135,17 @@ func (pc *Periodic) Run() {
 				zap.Int64("revision", rev),
 				zap.Duration("compact-period", pc.period),
 			)
-			startTime := pc.clock.Now()
+			startTime := time.Now()
 			_, err := pc.c.Compact(pc.ctx, &pb.CompactionRequest{Revision: rev})
 			if err == nil || errors.Is(err, mvcc.ErrCompacted) {
 				pc.lg.Info(
 					"completed auto periodic compaction",
 					zap.Int64("revision", rev),
 					zap.Duration("compact-period", pc.period),
-					zap.Duration("took", pc.clock.Now().Sub(startTime)),
+					zap.Duration("took", time.Now().Sub(startTime)),
 				)
 				lastRevision = rev
-				lastSuccess = pc.clock.Now()
+				lastSuccess = time.Now()
 			} else {
 				pc.lg.Warn(
 					"failed auto periodic compaction",

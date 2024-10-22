@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	"go.uber.org/zap"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -64,9 +63,9 @@ func New(
 	}
 	switch mode {
 	case ModePeriodic:
-		return newPeriodic(lg, clockwork.NewRealClock(), retention, rg, c), nil
+		return newPeriodic(lg, retention, rg, c), nil
 	case ModeRevision:
-		return newRevision(lg, clockwork.NewRealClock(), int64(retention), rg, c), nil
+		return newRevision(lg, int64(retention), rg, c), nil
 	default:
 		return nil, fmt.Errorf("unsupported compaction mode %s", mode)
 	}

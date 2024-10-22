@@ -16,32 +16,76 @@ package v3compactor
 
 import (
 	"context"
-	"sync/atomic"
+	"sync"
+	"testing"
+	"testing/synctest"
 
+	"github.com/golang/protobuf/proto"
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
-	"go.etcd.io/etcd/client/pkg/v3/testutil"
 )
 
 type fakeCompactable struct {
-	testutil.Recorder
+	t   *testing.T
+	got *pb.CompactionRequest
+}
+
+func newFakeCompactible(t *testing.T) *fakeCompactable {
+	fc := &fakeCompactable{t: t}
+	t.Cleanup(func() {
+		if fc.got != nil {
+			t.Errorf("test ended with unexamined compaction request")
+		}
+	})
+	return fc
 }
 
 func (fc *fakeCompactable) Compact(ctx context.Context, r *pb.CompactionRequest) (*pb.CompactionResponse, error) {
-	fc.Record(testutil.Action{Name: "c", Params: []any{r}})
+	if fc.got != nil {
+		fc.t.Errorf("compaction happening with prior unexamined compaction request")
+	}
+	fc.got = r
 	return &pb.CompactionResponse{}, nil
 }
 
+func (fc *fakeCompactable) Want(want *pb.CompactionRequest) {
+	fc.t.Helper()
+	synctest.Wait()
+	if want == nil {
+		if fc.got != nil {
+			fc.t.Fatalf("got compaction request, want none")
+		}
+	} else {
+		if fc.got == nil {
+			fc.t.Fatalf("got no compaction request, want one")
+		}
+		if !proto.Equal(fc.got, want) {
+			fc.t.Fatalf("compact request = %v, want %v", fc.got, want)
+		}
+		fc.got = nil
+	}
+}
+
 type fakeRevGetter struct {
-	testutil.Recorder
+	mu  sync.Mutex
 	rev int64
 }
 
 func (fr *fakeRevGetter) Rev() int64 {
-	fr.Record(testutil.Action{Name: "g"})
-	rev := atomic.AddInt64(&fr.rev, 1)
-	return rev
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	return fr.rev
+}
+
+func (fr *fakeRevGetter) IncRev() {
+	synctest.Wait()
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	fr.rev++
 }
 
 func (fr *fakeRevGetter) SetRev(rev int64) {
-	atomic.StoreInt64(&fr.rev, rev)
+	synctest.Wait()
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	fr.rev = rev
 }
